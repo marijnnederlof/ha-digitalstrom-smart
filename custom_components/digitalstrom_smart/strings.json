@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "digitalSTROM Connection",
+        "description": "Choose how to connect to your digitalSTROM Server (dSS).",
+        "data": {
+          "connection_type": "Connection type"
+        }
+      },
+      "local": {
+        "title": "Local Connection",
+        "description": "Enter the IP address of your dSS.",
+        "data": {
+          "host": "IP address",
+          "port": "Port"
+        }
+      },
+      "approve_token": {
+        "title": "Approve Application",
+        "description": "Press the button on your digitalSTROM meter to authorize Home Assistant.\n\nToken: {token}\n\nClick Submit after pressing the button."
+      },
+      "cloud": {
+        "title": "Cloud Connection",
+        "description": "Enter your digitalSTROM cloud URL and credentials.",
+        "data": {
+          "cloud_url": "Cloud URL (e.g. https://xxxxx.digitalstrom.net)",
+          "cloud_user": "Username",
+          "cloud_pass": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to dSS. Check IP/URL and ensure the server is reachable.",
+      "invalid_auth": "Invalid credentials.",
+      "token_not_approved": "Token not yet approved. Press the meter button and try again."
+    },
+    "abort": {
+      "cannot_connect": "Could not connect to dSS after authentication."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "digitalSTROM Zones",
+        "description": "Select which zones to include in Home Assistant.",
+        "data": {
+          "enabled_zones": "Enabled zones"
+        }
+      }
+    }
+  }
+}
