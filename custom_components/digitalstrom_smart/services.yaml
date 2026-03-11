@@ -30,14 +30,6 @@ call_scene:
           max: 127
           mode: box
 
-pause:
-  name: Pause Communication
-  description: Pause all Digital Strom communication. Use when working with dS Configurator.
-
-resume:
-  name: Resume Communication
-  description: Resume Digital Strom communication after pause.
-
 blink_device:
   name: Blink Device
   description: Make a device blink for identification. Requires Pro license.

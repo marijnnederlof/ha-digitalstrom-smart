@@ -1,6 +1,6 @@
 """Binary sensor entities for Digital Strom.
 
-Exposes device on/off state as binary sensors for Joker (black) devices.
+Rain detection from outdoor weather station.
 PRO FEATURE - requires license key.
 """
 
@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, GROUP_JOKER, CONF_ENABLED_ZONES
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import DigitalStromCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,60 +26,45 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Digital Strom binary sensors for Joker devices."""
+    """Set up Digital Strom binary sensors."""
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator: DigitalStromCoordinator = data["coordinator"]
-    enabled_zones = entry.data.get(CONF_ENABLED_ZONES, [])
 
     entities = []
-    for dsuid, dev in coordinator.devices.items():
-        zone_id = dev.get("zone_id")
-        if enabled_zones and zone_id not in enabled_zones:
-            continue
-        # Joker (black) devices with binary input capability
-        if GROUP_JOKER in dev.get("groups", []) and dev.get("sensors"):
-            entities.append(
-                DigitalStromBinarySensor(coordinator, dsuid, dev)
-            )
+
+    # Rain detection from outdoor weather data
+    if coordinator.outdoor_sensors and "rain" in coordinator.outdoor_sensors:
+        entities.append(DigitalStromRainSensor(coordinator))
 
     async_add_entities(entities)
 
 
-class DigitalStromBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """A Digital Strom binary sensor (Joker device state)."""
+class DigitalStromRainSensor(CoordinatorEntity, BinarySensorEntity):
+    """Rain detection binary sensor from dSS weather station."""
 
     _attr_has_entity_name = True
-    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_name = "Rain"
 
-    def __init__(
-        self,
-        coordinator: DigitalStromCoordinator,
-        dsuid: str,
-        dev_info: dict,
-    ) -> None:
+    def __init__(self, coordinator: DigitalStromCoordinator) -> None:
         super().__init__(coordinator)
-        self._dsuid = dsuid
         dss_id = coordinator.dss_id
-        zone_name = dev_info.get("zone_name", "")
-        dev_name = dev_info.get("name", dsuid[:8])
-        self._attr_unique_id = f"ds_{dss_id}_dev_{dsuid}_binary"
-        self._attr_name = dev_name or f"Sensor {dsuid[:8]}"
+        self._attr_unique_id = f"ds_{dss_id}_outdoor_rain_binary"
+        self._attr_icon = "mdi:weather-rainy"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{dss_id}_zone_{dev_info.get('zone_id', 0)}")},
-            "name": zone_name,
+            "identifiers": {(DOMAIN, f"{dss_id}_apartment")},
+            "name": "Digital Strom Server",
             "manufacturer": MANUFACTURER,
-            "model": "Zone",
+            "model": "dSS",
         }
 
     @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def is_on(self) -> bool | None:
-        dev = self.coordinator.devices.get(self._dsuid)
-        if dev:
-            return dev.get("is_on", False)
+        """Return True if it is raining (rain value > 0)."""
+        data = self.coordinator.outdoor_sensors.get("rain", {})
+        value = data.get("value")
+        if value is not None:
+            return float(value) > 0
         return None
 
     @callback

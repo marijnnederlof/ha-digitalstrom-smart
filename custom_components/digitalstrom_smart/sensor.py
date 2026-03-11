@@ -1,7 +1,7 @@
 """Sensor entities for Digital Strom.
 
-Free: apartment power consumption, zone temperature
-Pro: outdoor weather sensors, per-circuit power, humidity, brightness, CO2
+Free: apartment power consumption, zone temperature, device sensors (Ulux CO2/Lux/Temp)
+Pro: outdoor weather sensors, per-circuit power, humidity, brightness
 """
 
 import logging
@@ -41,7 +41,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, CONF_ENABLED_ZONES, GROUP_TEMP_CONTROL
+from .const import (
+    DOMAIN, MANUFACTURER, CONF_ENABLED_ZONES, GROUP_TEMP_CONTROL,
+    SENSOR_TEMPERATURE, SENSOR_HUMIDITY, SENSOR_BRIGHTNESS, SENSOR_CO2,
+)
 from .coordinator import DigitalStromCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +81,35 @@ OUTDOOR_SENSORS = {
         "device_class": SensorDeviceClass.ATMOSPHERIC_PRESSURE,
         "unit": UnitOfPressure.HPA,
     },
+    "rain": {
+        "name": "Rain",
+        "device_class": SensorDeviceClass.PRECIPITATION_INTENSITY,
+        "unit": "mm/h",
+    },
+}
+
+# Device sensor type to HA sensor config
+DEVICE_SENSOR_MAP = {
+    SENSOR_TEMPERATURE: {
+        "suffix": "Temperature",
+        "device_class": SensorDeviceClass.TEMPERATURE,
+        "unit": UnitOfTemperature.CELSIUS,
+    },
+    SENSOR_HUMIDITY: {
+        "suffix": "Humidity",
+        "device_class": SensorDeviceClass.HUMIDITY,
+        "unit": PERCENTAGE,
+    },
+    SENSOR_BRIGHTNESS: {
+        "suffix": "Brightness",
+        "device_class": SensorDeviceClass.ILLUMINANCE,
+        "unit": UnitOfIlluminance.LUX,
+    },
+    SENSOR_CO2: {
+        "suffix": "CO2",
+        "device_class": SensorDeviceClass.CO2,
+        "unit": CONCENTRATION_PARTS_PER_MILLION,
+    },
 }
 
 
@@ -102,7 +134,7 @@ async def async_setup_entry(
             continue
 
         if coordinator.has_temp_control(zone_id):
-            # Zone with temperature control (group 48): current + target temp
+            # Zone with temperature control: current + target temp + heating output
             if coordinator.get_current_temperature(zone_id) is not None:
                 entities.append(
                     DigitalStromCurrentTempSensor(coordinator, zone_id, zone_info)
@@ -116,11 +148,36 @@ async def async_setup_entry(
                 entities.append(
                     DigitalStromHeatingOutputSensor(coordinator, zone_id, zone_info)
                 )
-        elif coordinator.get_temperature(zone_id) is not None:
-            # Zone without temp control: single temperature sensor (legacy)
-            entities.append(
-                DigitalStromTemperatureSensor(coordinator, zone_id, zone_info)
-            )
+        else:
+            # Zone without temp control: show temperature if available from any source
+            temp = coordinator.get_any_temperature(zone_id)
+            if temp is not None:
+                entities.append(
+                    DigitalStromTemperatureSensor(coordinator, zone_id, zone_info)
+                )
+
+    # --- FREE: Device sensors (Ulux CO2, Lux, Temp, Humidity) ---
+    for dsuid, dev in coordinator.devices.items():
+        zone_id = dev.get("zone_id")
+        if enabled_zones and zone_id not in enabled_zones:
+            continue
+        zone_name = dev.get("zone_name", "")
+        dev_name = dev.get("name", "")
+        for sensor in dev.get("sensors", []):
+            stype = sensor.get("type", -1)
+            if stype in DEVICE_SENSOR_MAP:
+                sensor_config = DEVICE_SENSOR_MAP[stype]
+                # Only create entity if we have or can get a value
+                has_value = (
+                    sensor.get("value") is not None
+                    or coordinator.get_device_sensor_value(dsuid, stype) is not None
+                )
+                if has_value:
+                    entities.append(
+                        DigitalStromDeviceSensor(
+                            coordinator, dsuid, dev, stype, sensor_config
+                        )
+                    )
 
     # --- PRO: Outdoor weather sensors ---
     if coordinator.pro_enabled and coordinator.outdoor_sensors:
@@ -165,10 +222,6 @@ class DigitalStromEnergySensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def native_value(self) -> int | None:
         return self.coordinator.consumption
 
@@ -178,7 +231,7 @@ class DigitalStromEnergySensor(CoordinatorEntity, SensorEntity):
 
 
 class DigitalStromTemperatureSensor(CoordinatorEntity, SensorEntity):
-    """Zone temperature sensor."""
+    """Zone temperature sensor (rooms without temp control)."""
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -204,12 +257,8 @@ class DigitalStromTemperatureSensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def native_value(self) -> float | None:
-        return self.coordinator.get_temperature(self._zone_id)
+        return self.coordinator.get_any_temperature(self._zone_id)
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -236,10 +285,6 @@ class DigitalStromCurrentTempSensor(CoordinatorEntity, SensorEntity):
             "manufacturer": MANUFACTURER,
             "model": "Zone",
         }
-
-    @property
-    def available(self):
-        return not self.coordinator.is_paused and super().available
 
     @property
     def native_value(self):
@@ -272,10 +317,6 @@ class DigitalStromTargetTempSensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def available(self):
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def native_value(self):
         return self.coordinator.get_temperature(self._zone_id)
 
@@ -306,10 +347,6 @@ class DigitalStromHeatingOutputSensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def available(self):
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def native_value(self):
         val = self.coordinator.get_control_value(self._zone_id)
         if val is not None:
@@ -318,6 +355,50 @@ class DigitalStromHeatingOutputSensor(CoordinatorEntity, SensorEntity):
 
     @callback
     def _handle_coordinator_update(self):
+        self.async_write_ha_state()
+
+
+class DigitalStromDeviceSensor(CoordinatorEntity, SensorEntity):
+    """Device-level sensor (Ulux CO2, brightness, temperature, humidity)."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: DigitalStromCoordinator,
+        dsuid: str,
+        dev_info: dict,
+        sensor_type: int,
+        sensor_config: dict,
+    ) -> None:
+        super().__init__(coordinator)
+        self._dsuid = dsuid
+        self._sensor_type = sensor_type
+        dss_id = coordinator.dss_id
+        zone_id = dev_info.get("zone_id", 0)
+        dev_name = dev_info.get("name", "") or dsuid[:8]
+        suffix = sensor_config["suffix"]
+        self._attr_unique_id = f"ds_{dss_id}_dev_{dsuid}_{suffix.lower()}"
+        self._attr_name = f"{dev_name} {suffix}"
+        self._attr_device_class = sensor_config["device_class"]
+        self._attr_native_unit_of_measurement = sensor_config["unit"]
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{dss_id}_zone_{zone_id}")},
+            "name": dev_info.get("zone_name", ""),
+            "manufacturer": MANUFACTURER,
+            "model": "Zone",
+        }
+
+    @property
+    def native_value(self) -> float | None:
+        val = self.coordinator.get_device_sensor_value(self._dsuid, self._sensor_type)
+        if val is not None:
+            return round(val, 1)
+        return None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
 
@@ -346,10 +427,6 @@ class DigitalStromOutdoorSensor(CoordinatorEntity, SensorEntity):
             "manufacturer": MANUFACTURER,
             "model": "dSS",
         }
-
-    @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
 
     @property
     def native_value(self) -> float | None:
@@ -388,12 +465,9 @@ class DigitalStromCircuitSensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def native_value(self) -> int | None:
-        return self.coordinator.get_circuit_power(self._dsuid) or None
+        val = self.coordinator.get_circuit_power(self._dsuid)
+        return val if val else None
 
     @callback
     def _handle_coordinator_update(self) -> None:

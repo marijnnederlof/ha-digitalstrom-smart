@@ -3,8 +3,8 @@
 The definitive Digital Strom integration - zone-based, event-driven,
 scenes as primary control. Minimal bus load.
 
-Free tier: lights, covers, scenes, basic sensors, pause/resume
-Pro tier: climate, energy dashboard, outdoor sensors, device blink, smooth dimming
+Free tier: lights, covers, scenes, sensors (zone + device), switches (joker)
+Pro tier: climate, energy dashboard, outdoor sensors, rain detection, device blink
 
 Developed by Woon IoT BV - https://wooniot.nl
 """
@@ -75,16 +75,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initial data fetch
     await coordinator.async_config_entry_first_refresh()
 
-    # Fetch scene names and initial states (best-effort, don't block setup)
+    # Fetch scene names (best-effort, don't block setup)
     try:
         await coordinator.fetch_scene_names()
     except Exception as err:
         _LOGGER.warning("Scene name fetch failed (non-fatal): %s", err)
 
+    # Fetch initial states (best-effort)
     try:
         await coordinator.fetch_initial_states()
     except Exception as err:
         _LOGGER.warning("Initial state fetch failed (non-fatal): %s", err)
+
+    # Fetch device sensor values (Ulux etc.) - one-time, then events update
+    try:
+        await coordinator.fetch_device_sensors()
+    except Exception as err:
+        _LOGGER.warning("Device sensor fetch failed (non-fatal): %s", err)
 
     # Pro: fetch climate and sensor data
     if coordinator.pro_enabled:
@@ -182,14 +189,6 @@ def _register_services(hass: HomeAssistant) -> None:
             except DigitalStromApiError as err:
                 _LOGGER.error("call_scene failed: %s", err)
 
-    async def handle_pause(call: ServiceCall) -> None:
-        for entry_data in hass.data[DOMAIN].values():
-            await entry_data["coordinator"].pause()
-
-    async def handle_resume(call: ServiceCall) -> None:
-        for entry_data in hass.data[DOMAIN].values():
-            await entry_data["coordinator"].resume()
-
     async def handle_blink(call: ServiceCall) -> None:
         """Blink a device for identification. PRO."""
         dsuid = call.data["dsuid"]
@@ -220,7 +219,5 @@ def _register_services(hass: HomeAssistant) -> None:
 
     if not hass.services.has_service(DOMAIN, "call_scene"):
         hass.services.async_register(DOMAIN, "call_scene", handle_call_scene)
-        hass.services.async_register(DOMAIN, "pause", handle_pause)
-        hass.services.async_register(DOMAIN, "resume", handle_resume)
         hass.services.async_register(DOMAIN, "blink_device", handle_blink)
         hass.services.async_register(DOMAIN, "save_scene", handle_save_scene)

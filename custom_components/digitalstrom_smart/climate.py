@@ -1,6 +1,6 @@
 """Climate entities for Digital Strom zones.
 
-Full thermostat control: set target temperature, switch heating modes.
+Full thermostat control: set target temperature, switch heating/cooling modes.
 PRO FEATURE - requires license key.
 """
 
@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
     GROUP_HEATING,
+    GROUP_COOLING,
     GROUP_TEMP_CONTROL,
     SCENE_OFF,
     SCENE_1,
@@ -54,6 +55,15 @@ PRESET_TO_SCENE = {
     "holiday": SCENE_4,
 }
 
+# dS ControlMode values
+CONTROL_MODE_OFF = 0
+CONTROL_MODE_PID = 1       # Heating
+CONTROL_MODE_ZONE_FOLLOWER = 2
+CONTROL_MODE_FIXED = 3
+CONTROL_MODE_MANUAL = 4
+CONTROL_MODE_COOLING = 11  # Cooling
+CONTROL_MODE_COOL_OFF = 12
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -69,9 +79,8 @@ async def async_setup_entry(
     for zone_id, zone_info in coordinator.zones.items():
         if enabled_zones and zone_id not in enabled_zones:
             continue
-        # Zone needs heating or temperature control group
-        has_heating = GROUP_HEATING in zone_info["groups"] or GROUP_TEMP_CONTROL in zone_info["groups"]
-        if has_heating and coordinator.get_climate_status(zone_id):
+        # Zone needs temp control data (not just dumb heating actuators)
+        if coordinator.has_temp_control(zone_id):
             entities.append(
                 DigitalStromClimate(coordinator, zone_id, zone_info)
             )
@@ -80,7 +89,7 @@ async def async_setup_entry(
 
 
 class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
-    """A Digital Strom zone thermostat."""
+    """A Digital Strom zone thermostat with heating and cooling support."""
 
     _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -88,7 +97,7 @@ class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
     )
-    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF, HVACMode.AUTO]
     _attr_preset_modes = ["comfort", "economy", "night", "holiday"]
     _attr_min_temp = 5.0
     _attr_max_temp = 30.0
@@ -115,10 +124,6 @@ class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return not self.coordinator.is_paused and super().available
-
-    @property
     def current_temperature(self) -> float | None:
         status = self.coordinator.get_climate_status(self._zone_id)
         if status:
@@ -131,7 +136,9 @@ class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
     def target_temperature(self) -> float | None:
         status = self.coordinator.get_climate_status(self._zone_id)
         if status:
-            return status.get("NominalValue")
+            nv = status.get("NominalValue")
+            if nv and nv > 0:
+                return nv
         return self.coordinator.get_temperature(self._zone_id)
 
     @property
@@ -141,14 +148,24 @@ class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
             op_mode = status.get("OperationMode", 0)
             if op_mode == 0:
                 return HVACMode.OFF
+            # Check ControlMode for heating vs cooling
+            control_mode = status.get("ControlMode", CONTROL_MODE_PID)
+            if control_mode in (CONTROL_MODE_COOLING, CONTROL_MODE_COOL_OFF):
+                return HVACMode.COOL
         return HVACMode.HEAT
 
     @property
     def hvac_action(self) -> HVACAction | None:
         status = self.coordinator.get_climate_status(self._zone_id)
         if status:
+            op_mode = status.get("OperationMode", 0)
+            if op_mode == 0:
+                return HVACAction.OFF
             control_value = status.get("ControlValue", 0)
+            control_mode = status.get("ControlMode", CONTROL_MODE_PID)
             if control_value > 0:
+                if control_mode in (CONTROL_MODE_COOLING, CONTROL_MODE_COOL_OFF):
+                    return HVACAction.COOLING
                 return HVACAction.HEATING
             return HVACAction.IDLE
         return None
@@ -179,7 +196,7 @@ class DigitalStromClimate(CoordinatorEntity, ClimateEntity):
             _LOGGER.error("Failed to set temperature for %s: %s", self._zone_name, err)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode (heat/off)."""
+        """Set HVAC mode (heat/cool/off/auto)."""
         if hvac_mode == HVACMode.OFF:
             scene = SCENE_OFF
         else:

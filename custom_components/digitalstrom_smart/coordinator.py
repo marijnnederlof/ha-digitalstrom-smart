@@ -24,6 +24,7 @@ from .const import (
     GROUP_SHADE,
     GROUP_HEATING,
     GROUP_JOKER,
+    GROUP_COOLING,
     GROUP_TEMP_CONTROL,
     SCENE_OFF,
     SCENE_1,
@@ -33,6 +34,10 @@ from .const import (
     NAMED_SCENES,
     NAMED_SCENES_SHADE,
     GROUP_HEATING_SCENES,
+    SENSOR_TEMPERATURE,
+    SENSOR_HUMIDITY,
+    SENSOR_BRIGHTNESS,
+    SENSOR_CO2,
     INTEGRATION_VERSION,
     TELEMETRY_URL,
 )
@@ -58,7 +63,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         self._structure = structure
         self.dss_id = dss_id
         self._event_task: asyncio.Task | None = None
-        self._paused = False
         self._reconnect_delay = RECONNECT_INITIAL
 
         # State tracking: {(zone_id, group): {"scene": int, "value": int, "is_on": bool}}
@@ -69,6 +73,9 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         self._temperatures: dict[int, dict] = {}  # zone_id -> temp data
         self._outdoor_sensors: dict = {}  # outdoor weather data
         self._zone_sensors: dict[int, dict] = {}  # zone_id -> sensor readings
+
+        # Device sensor values: {dsuid: {sensor_type: value}}
+        self._device_sensor_values: dict[str, dict[int, float]] = {}
 
         # Metering data (PRO)
         self._circuit_power: dict[str, int] = {}  # dsuid -> watts
@@ -203,10 +210,15 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug("Scene fetch error zone %d group %d: %s", zone_id, group, err)
 
     async def fetch_initial_states(self) -> None:
-        """Fetch initial scene states for all zones via getLastCalledScene."""
+        """Fetch initial scene states for all zones via getLastCalledScene.
+
+        Only fetch for groups that have actual devices (reduces bus load).
+        """
         for zone_id, zone_info in self.zones.items():
+            if not zone_info["devices"]:
+                continue
             for group in zone_info["groups"]:
-                if group not in (GROUP_LIGHT, GROUP_SHADE, GROUP_HEATING):
+                if group not in (GROUP_LIGHT, GROUP_SHADE, GROUP_HEATING, GROUP_JOKER):
                     continue
                 try:
                     scene = await self.api.get_last_called_scene(zone_id, group)
@@ -225,6 +237,9 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
             return
         for zone_id, zone_info in self.zones.items():
             if GROUP_HEATING not in zone_info["groups"] and GROUP_TEMP_CONTROL not in zone_info["groups"]:
+                continue
+            # Only fetch if zone has temp control (not dumb heating)
+            if not self.has_temp_control(zone_id):
                 continue
             try:
                 status = await self.api.get_temperature_control_status(zone_id)
@@ -256,7 +271,9 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         if not self.pro_enabled:
             return
         try:
-            self._circuits = await self.api.get_circuits()
+            if not self._circuits:
+                self._circuits = await self.api.get_circuits()
+            # Fetch per-circuit power
             values = await self.api.get_metering_latest()
             for v in values:
                 dsuid = v.get("dSUID", "")
@@ -264,6 +281,31 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                     self._circuit_power[dsuid] = v.get("value", 0)
         except DigitalStromApiError:
             pass
+
+    async def fetch_device_sensors(self) -> None:
+        """Fetch sensor values from devices that have sensors (Ulux, etc.).
+
+        Only fetches for devices with relevant sensor types (temp, CO2, brightness, humidity).
+        Called once at startup and then relies on deviceSensorValue events.
+        """
+        relevant_types = {SENSOR_TEMPERATURE, SENSOR_HUMIDITY, SENSOR_BRIGHTNESS, SENSOR_CO2}
+        for dsuid, dev in self.devices.items():
+            for sensor in dev.get("sensors", []):
+                stype = sensor.get("type", -1)
+                if stype not in relevant_types:
+                    continue
+                try:
+                    result = await self.api.get_device_sensor_value(dsuid, sensor["index"])
+                    value = result.get("value")
+                    if value is not None:
+                        if dsuid not in self._device_sensor_values:
+                            self._device_sensor_values[dsuid] = {}
+                        self._device_sensor_values[dsuid][stype] = float(value)
+                        sensor["value"] = float(value)
+                except DigitalStromApiError:
+                    _LOGGER.debug("Failed to fetch sensor %d from device %s", sensor["index"], dsuid[:8])
+                except Exception:
+                    pass
 
     def get_scene_display_name(self, zone_id: int, group: int, scene_nr: int) -> str:
         """Get display name: dS custom name or group-specific default."""
@@ -279,10 +321,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
     # =====================================================================
     # State accessors
     # =====================================================================
-
-    @property
-    def is_paused(self) -> bool:
-        return self._paused
 
     @property
     def consumption(self) -> int:
@@ -337,6 +375,25 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                 return sv
         return None
 
+    def get_any_temperature(self, zone_id: int) -> float | None:
+        """Get any available temperature for a zone (regardless of temp control).
+
+        Used for rooms that have a temperature sensor but no heating/temp control.
+        Checks: TemperatureValue, sensorValue from events, device sensors.
+        """
+        # First try coordinator temp data
+        temp = self.get_current_temperature(zone_id)
+        if temp is not None:
+            return temp
+
+        # Then try device sensors in this zone
+        zone_info = self.zones.get(zone_id, {})
+        for dsuid in zone_info.get("devices", []):
+            dev_sensors = self._device_sensor_values.get(dsuid, {})
+            if SENSOR_TEMPERATURE in dev_sensors:
+                return dev_sensors[SENSOR_TEMPERATURE]
+        return None
+
     def get_control_value(self, zone_id: int) -> float | None:
         """Get heating control output value (0-100%) for a zone."""
         data = self._temperatures.get(zone_id)
@@ -356,6 +413,10 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
     def get_circuit_power(self, dsuid: str) -> int:
         return self._circuit_power.get(dsuid, 0)
 
+    def get_device_sensor_value(self, dsuid: str, sensor_type: int) -> float | None:
+        """Get a device sensor value by type."""
+        return self._device_sensor_values.get(dsuid, {}).get(sensor_type)
+
     def get_zone_state(self, zone_id: int, group: int) -> dict[str, Any]:
         return self._zone_states.get((zone_id, group), {"scene": None, "value": None})
 
@@ -371,8 +432,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
 
     async def start_event_listener(self) -> None:
         """Subscribe to events and start long-poll loop."""
-        if self._paused:
-            return
         try:
             await self.api.subscribe_events()
             self._reconnect_delay = RECONNECT_INITIAL
@@ -386,7 +445,7 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
 
     async def _event_loop(self) -> None:
         """Continuously long-poll for events."""
-        while not self._paused:
+        while True:
             try:
                 events = await self.api.get_events()
                 self._reconnect_delay = RECONNECT_INITIAL
@@ -452,12 +511,19 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
             dsuid = props.get("dsuid", "")
             sensor_type = int(props.get("sensorType", -1))
             value = props.get("sensorValue")
-            if dsuid and dsuid in self.devices and value is not None:
-                dev = self.devices[dsuid]
-                for s in dev.get("sensors", []):
-                    if s.get("type") == sensor_type:
-                        s["value"] = float(value)
-                        break
+            if dsuid and value is not None:
+                # Update device sensor values cache
+                if dsuid not in self._device_sensor_values:
+                    self._device_sensor_values[dsuid] = {}
+                self._device_sensor_values[dsuid][sensor_type] = float(value)
+
+                # Also update device info sensors
+                if dsuid in self.devices:
+                    dev = self.devices[dsuid]
+                    for s in dev.get("sensors", []):
+                        if s.get("type") == sensor_type:
+                            s["value"] = float(value)
+                            break
                 self.async_update_listeners()
 
         elif name == "stateChange":
@@ -469,9 +535,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Periodic poll for consumption + temperature + sensors."""
-        if self._paused:
-            raise UpdateFailed("Integration is paused")
-
         try:
             self._consumption = await self.api.get_consumption()
 
@@ -479,7 +542,10 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
             for zone_data in temp_data:
                 zone_id = zone_data.get("id")
                 if zone_id:
-                    self._temperatures[zone_id] = zone_data
+                    # Merge with existing data (preserve sensorValue from events)
+                    existing = self._temperatures.get(zone_id, {})
+                    existing.update(zone_data)
+                    self._temperatures[zone_id] = existing
 
             # Pro features: extra data
             if self.pro_enabled:
@@ -507,50 +573,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
             "temperatures": self._temperatures,
         }
 
-    # =====================================================================
-    # Pause / Resume
-    # =====================================================================
-
-    async def pause(self) -> None:
-        """Pause all dSS communication (for dS Configurator use)."""
-        _LOGGER.info("Pausing Digital Strom communication")
-        self._paused = True
-
-        if self._event_task and not self._event_task.done():
-            self._event_task.cancel()
-            try:
-                await self._event_task
-            except asyncio.CancelledError:
-                pass
-            self._event_task = None
-
-        self.async_update_listeners()
-
-    async def resume(self) -> None:
-        """Resume communication and re-sync state."""
-        _LOGGER.info("Resuming Digital Strom communication")
-        self._paused = False
-
-        try:
-            await self.api.connect()
-
-            # Re-fetch structure in case config changed
-            structure = await self.api.get_structure()
-            self._parse_structure(structure)
-
-            # Re-fetch scene names and initial states
-            await self.fetch_scene_names()
-            await self.fetch_initial_states()
-
-            # Restart event listener
-            await self.start_event_listener()
-
-            # Force immediate data poll
-            await self.async_request_refresh()
-
-        except DigitalStromApiError as err:
-            _LOGGER.error("Failed to resume: %s", err)
-
     async def _send_telemetry(self) -> None:
         """Send anonymous ping to WoonIoT (once per startup, best-effort)."""
         try:
@@ -572,7 +594,6 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
 
     async def shutdown(self) -> None:
         """Clean shutdown."""
-        self._paused = True
         if self._event_task and not self._event_task.done():
             self._event_task.cancel()
             try:
