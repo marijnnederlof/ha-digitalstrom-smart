@@ -165,6 +165,12 @@ Home Assistant
 
 ## Changelog
 
+### v2.3.0 (2026-03-12)
+- Fix dS-bus sensor scaling: use official dS bus 12-bit encoding per sensor type
+- Temperature: `raw / 40 - 43.2`, Humidity: `raw / 40` (not raw/100)
+- Verified against dSS zone API values — now matches exactly
+- Fixes wrong humidity (showed ~22% instead of ~56%) and temperature offsets on dS-bus devices
+
 ### v2.2.9 (2026-03-12)
 - Fix sensor scaling: use dSUID prefix to reliably detect dS-bus devices (always raw /100) vs EnOcean devices (already float)
 - Fixes incorrect brightness and CO2 values (e.g., 2149 lx shown instead of 21.49 lx)

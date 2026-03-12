@@ -291,14 +291,33 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         except DigitalStromApiError:
             pass
 
+    @staticmethod
+    def _scale_ds_bus_sensor(raw: float, sensor_type: int) -> float:
+        """Scale raw dS-bus 12-bit sensor values to physical units.
+
+        dS-bus devices return raw encoded integers via getSensorValue.
+        The encoding is type-specific per the dS bus protocol.
+        Events use sensorValueFloat which is already scaled by the dSS.
+        """
+        if sensor_type == SENSOR_TEMPERATURE:
+            return raw / 40.0 - 43.2
+        elif sensor_type == SENSOR_HUMIDITY:
+            return raw / 40.0
+        elif sensor_type == SENSOR_BRIGHTNESS:
+            return raw / 100.0
+        elif sensor_type == SENSOR_CO2:
+            return raw / 100.0
+        else:
+            return raw / 100.0
+
     async def fetch_device_sensors(self) -> None:
         """Fetch sensor values from devices that have sensors (Ulux, etc.).
 
         Only fetches for devices with relevant sensor types (temp, CO2, brightness, humidity).
         Called once at startup and then relies on deviceSensorValue events.
 
-        Note: getSensorValue2 returns raw integer values (e.g., 2499 for 24.99°C).
-        We scale them by dividing by 100 to get the proper float value.
+        dS-bus devices return raw 12-bit encoded values that need type-specific
+        scaling. EnOcean/external devices return proper floats.
         Events use sensorValueFloat which is already scaled.
         """
         relevant_types = {SENSOR_TEMPERATURE, SENSOR_HUMIDITY, SENSOR_BRIGHTNESS, SENSOR_CO2}
@@ -314,21 +333,21 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                     if value is not None:
                         raw = float(value)
                         # dS-bus devices (dSUID prefix 302ed89f43f0) return raw
-                        # integer values from getSensorValue that need /100 scaling.
+                        # encoded integers that need type-specific scaling.
                         # External devices (EnOcean, etc.) return proper floats.
                         is_ds_bus = dsuid.startswith("302ed89f43f0")
                         if is_ds_bus and raw > 100:
-                            scaled = raw / 100.0
+                            scaled = self._scale_ds_bus_sensor(raw, stype)
                         else:
                             scaled = raw
                         if dsuid not in self._device_sensor_values:
                             self._device_sensor_values[dsuid] = {}
-                        self._device_sensor_values[dsuid][stype] = scaled
-                        sensor["value"] = scaled
+                        self._device_sensor_values[dsuid][stype] = round(scaled, 2)
+                        sensor["value"] = round(scaled, 2)
                         found_count += 1
                         _LOGGER.debug(
                             "Device sensor %s type=%d idx=%d: raw=%.1f val=%.2f ds_bus=%s (%s)",
-                            dsuid[:16], stype, sensor["index"], raw, scaled,
+                            dsuid[:16], stype, sensor["index"], raw, round(scaled, 2),
                             is_ds_bus, dev.get("name", "?"),
                         )
                 except DigitalStromApiError:

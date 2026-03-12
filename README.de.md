@@ -165,6 +165,12 @@ Home Assistant
 
 ## Änderungsprotokoll
 
+### v2.3.0 (12.03.2026)
+- dS-Bus Sensor-Skalierung korrigiert: offizielle dS-Bus 12-Bit-Kodierung pro Sensortyp
+- Temperatur: `raw / 40 - 43.2`, Luftfeuchtigkeit: `raw / 40` (nicht raw/100)
+- Gegen dSS Zone-API-Werte verifiziert — stimmt jetzt exakt überein
+- Behebt falsche Luftfeuchtigkeit (zeigte ~22% statt ~56%) und Temperaturabweichungen bei dS-Bus-Geräten
+
 ### v2.2.9 (12.03.2026)
 - Sensor-Skalierung behoben: dSUID-Präfix zur zuverlässigen Erkennung von dS-Bus-Geräten (immer Roh /100) vs. EnOcean-Geräten (bereits Float)
 - Behebt falsche Helligkeits- und CO2-Werte (z.B. 2149 lx statt 21,49 lx)
