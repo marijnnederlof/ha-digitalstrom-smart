@@ -5,6 +5,8 @@
 
 A zone-based, event-driven Home Assistant integration for **Digital Strom** home automation systems. Built by [Woon IoT BV](https://wooniot.nl) — Digital Strom installation specialists.
 
+> English | **[Deutsch](README.de.md)**
+
 ## Requirements
 
 - **Digital Strom Server**: dSS20 or newer (firmware 1.19.x+)
