@@ -153,6 +153,7 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                     "hw_info": dev.get("hwInfo", ""),
                     "is_on": dev.get("isOn", False),
                     "output_mode": dev.get("outputMode", 0),
+                    "binary_inputs": dev.get("binaryInputs", []),
                     "groups": [],
                     "sensors": [],
                 }
@@ -172,7 +173,7 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                 self.devices[dsuid] = dev_info
                 self.zones[zone_id]["devices"].append(dsuid)
 
-                # Initialize device on/off state from structure
+                # Initialize device on/off state from structure (actuators + sensors)
                 if GROUP_JOKER in dev_info["groups"]:
                     self._device_on_states[dsuid] = dev_info["is_on"]
 
@@ -452,6 +453,16 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                 result.append(dev)
         return result
 
+    def get_joker_actuators_in_zone(self, zone_id: int) -> list[dict]:
+        """Get Joker devices that are actuators (outputMode > 0)."""
+        return [d for d in self.get_joker_devices_in_zone(zone_id)
+                if d.get("output_mode", 0) > 0]
+
+    def get_joker_sensors_in_zone(self, zone_id: int) -> list[dict]:
+        """Get Joker devices that are sensors (outputMode == 0, have binaryInputs)."""
+        return [d for d in self.get_joker_devices_in_zone(zone_id)
+                if d.get("output_mode", 0) == 0]
+
     # =====================================================================
     # Event listener
     # =====================================================================
@@ -561,7 +572,18 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                 self.async_update_listeners()
 
         elif name == "stateChange":
-            _LOGGER.debug("State change: %s", props)
+            dsuid = props.get("dsuid", "")
+            state_name = props.get("statename", "")
+            state_value = props.get("state", "")
+            if dsuid and dsuid in self.devices:
+                # Binary input state changes (contacts, smoke, etc.)
+                is_active = state_value in ("active", "true", "1", "open")
+                self.set_device_on_state(dsuid, is_active)
+                _LOGGER.debug(
+                    "State change: dsuid=%s state=%s value=%s",
+                    dsuid[:8], state_name, state_value,
+                )
+                self.async_update_listeners()
 
     # =====================================================================
     # Polling (DataUpdateCoordinator)

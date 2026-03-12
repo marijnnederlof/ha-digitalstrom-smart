@@ -7,7 +7,7 @@ DOMAIN = "digitalstrom_smart"
 MANUFACTURER = "Digital Strom"
 INTEGRATION_AUTHOR = "Woon IoT BV"
 INTEGRATION_URL = "https://github.com/wooniot/ha-digitalstrom-smart"
-INTEGRATION_VERSION = "2.2.4"
+INTEGRATION_VERSION = "2.2.5"
 
 # Application name shown in dSS Configurator under registered applications
 DSS_APP_NAME = "WoonIoT HA Connect"
@@ -176,10 +176,10 @@ CONF_PRO_LICENSE = "pro_license_key"
 
 # --- Platforms ---
 # Free platforms (always loaded)
-PLATFORMS_FREE = ["light", "cover", "sensor", "scene", "switch"]
+PLATFORMS_FREE = ["light", "cover", "sensor", "scene", "switch", "binary_sensor"]
 
 # Pro platforms (requires license)
-PLATFORMS_PRO = ["climate", "binary_sensor"]
+PLATFORMS_PRO = ["climate"]
 
 # All platforms
 PLATFORMS = PLATFORMS_FREE + PLATFORMS_PRO

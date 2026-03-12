@@ -33,8 +33,9 @@ async def async_setup_entry(
         if GROUP_JOKER not in zone_info["groups"]:
             continue
 
-        # Create individual switch per Joker device in this zone
-        joker_devices = coordinator.get_joker_devices_in_zone(zone_id)
+        # Create individual switch per Joker ACTUATOR in this zone
+        # (sensors like contacts and smoke detectors go to binary_sensor)
+        joker_devices = coordinator.get_joker_actuators_in_zone(zone_id)
         for dev in joker_devices:
             entities.append(
                 DigitalStromJokerSwitch(coordinator, zone_id, zone_info, dev)
