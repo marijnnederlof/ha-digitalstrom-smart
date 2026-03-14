@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Digital Strom Verbinding",
+        "description": "Voer het IP-adres van je dSS in. Je dSS moet bereikbaar zijn op je lokale netwerk (dSS20 of nieuwer vereist).",
+        "data": {
+          "host": "IP-adres",
+          "port": "Poort"
+        }
+      },
+      "approve_token": {
+        "title": "Applicatie Goedkeuren",
+        "description": "Keur de WoonIoT verbinding goed in je Digital Strom Configurator:\n\n1. Open de dSS admin interface in je browser\n2. Ga naar Systeem > Toegangsautorisatie\n3. Zoek 'WoonIoT HA Connect' en vink het aan\n\nToken: {token}\n\nKlik op Verzenden na goedkeuring."
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met dSS. Controleer het IP-adres en of de server bereikbaar is op je lokale netwerk.",
+      "token_not_approved": "Token nog niet goedgekeurd. Keur de verbinding goed in dSS admin onder Toegangsautorisatie."
+    },
+    "abort": {
+      "cannot_connect": "Kon geen verbinding maken met dSS na authenticatie.",
+      "already_configured": "Deze Digital Strom server is al geconfigureerd."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Digital Strom Opties",
+        "description": "Configureer je Digital Strom integratie.",
+        "data": {
+          "enabled_zones": "Ingeschakelde zones",
+          "invert_cover_position": "Raambekleding richting omdraaien",
+          "pro_license_key": "Pro licentiesleutel"
+        },
+        "data_description": {
+          "invert_cover_position": "Schakel dit in als je zonwering/rolluiken de verkeerde kant op bewegen (open/dicht omgedraaid)",
+          "pro_license_key": "Ontgrendel klimaatregeling, energiedashboard, buitensensoren, apparaat-identificatie en meer. Haal je sleutel op wooniot.nl/pro"
+        }
+      }
+    }
+  }
+}
