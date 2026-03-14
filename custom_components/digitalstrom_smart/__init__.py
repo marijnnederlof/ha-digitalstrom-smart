@@ -178,8 +178,27 @@ async def _check_pro_license(key: str, dss_id: str) -> bool:
                     return data.get("valid", False)
     except Exception:
         pass
-    # Offline fallback: accept keys starting with "PRO-"
-    return key.startswith("PRO-") and len(key) >= 20
+    # Offline fallback: verify HMAC signature of key
+    return _verify_key_offline(key)
+
+
+def _verify_key_offline(key: str) -> bool:
+    """Verify license key HMAC signature for offline validation."""
+    import hashlib
+    import hmac as _hmac
+    parts = key.split("-")
+    if len(parts) != 4:
+        return False
+    prefix = parts[0]
+    if prefix not in ("PRO", "TRIAL"):
+        return False
+    body = f"{prefix}-{parts[1]}-{parts[2]}"
+    # Signing key (split to discourage casual extraction)
+    _k = "wooniot" + "-ds-" + "pro-2026" + "-secret" + "-key"
+    sig = _hmac.new(
+        _k.encode(), body.encode(), hashlib.sha256
+    ).hexdigest()[:4].upper()
+    return parts[3] == sig
 
 
 def _register_services(hass: HomeAssistant) -> None:
