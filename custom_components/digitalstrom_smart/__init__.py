@@ -108,6 +108,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as err:
             _LOGGER.warning("Pro data fetch failed (non-fatal): %s", err)
 
+        # Log detected climate zones for diagnostics
+        climate_zones = [
+            (zid, zi["name"]) for zid, zi in coordinator.zones.items()
+            if coordinator.has_temp_control(zid)
+        ]
+        if climate_zones:
+            _LOGGER.info(
+                "Climate zones detected: %s",
+                ", ".join(f"{name} (zone {zid})" for zid, name in climate_zones),
+            )
+        else:
+            _LOGGER.warning("No climate zones detected — check dSS temperature control config")
+
     # Start event listener as background task (must not block HA bootstrap)
     entry.async_create_background_task(
         hass, coordinator.start_event_listener(),

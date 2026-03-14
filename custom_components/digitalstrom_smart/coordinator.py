@@ -255,17 +255,24 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         for zone_id, zone_info in self.zones.items():
             if GROUP_HEATING not in zone_info["groups"] and GROUP_TEMP_CONTROL not in zone_info["groups"]:
                 continue
-            # Only fetch if zone has temp control (not dumb heating)
+            # Always fetch config first (needed by has_temp_control detection)
+            if zone_id not in self._climate_config:
+                try:
+                    config = await self.api.get_temperature_control_config(zone_id)
+                    self._climate_config[zone_id] = config
+                    _LOGGER.debug(
+                        "Zone %d (%s) climate config: ControlMode=%s",
+                        zone_id, zone_info["name"],
+                        config.get("ControlMode", "?"),
+                    )
+                except DigitalStromApiError:
+                    pass
+            # Only fetch status if zone has confirmed temp control
             if not self.has_temp_control(zone_id):
                 continue
             try:
                 status = await self.api.get_temperature_control_status(zone_id)
                 self._climate_status[zone_id] = status
-            except DigitalStromApiError:
-                pass
-            try:
-                config = await self.api.get_temperature_control_config(zone_id)
-                self._climate_config[zone_id] = config
             except DigitalStromApiError:
                 pass
 
@@ -387,10 +394,17 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
     def has_temp_control(self, zone_id: int) -> bool:
         """Check if zone has temperature control vs dumb heating.
 
-        Detection: if getTemperatureControlValues returns TemperatureValue
-        for this zone, it has active temperature control. Group 48 is a
-        virtual group that may not appear in device groups.
+        Primary: ControlMode from getTemperatureControlConfig2 (most reliable).
+        Fallback: TemperatureValue or NominalValue from getTemperatureControlValues.
         """
+        # Primary: climate config ControlMode (fetched for all heating zones)
+        config = self._climate_config.get(zone_id)
+        if config:
+            control_mode = config.get("ControlMode", 0)
+            if control_mode > 0:
+                return True
+
+        # Fallback: temperature values from polling
         data = self._temperatures.get(zone_id)
         if not data:
             return False
