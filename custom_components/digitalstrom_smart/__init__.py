@@ -28,7 +28,7 @@ from .coordinator import DigitalStromCoordinator
 
 # Pre-import all platform modules to avoid blocking imports in event loop (HA 2026+)
 from . import (  # noqa: F401
-    light, cover, sensor, scene, switch, climate, binary_sensor,
+    light, cover, sensor, scene, switch, climate, binary_sensor, select,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,11 +99,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         _LOGGER.warning("Circuit data fetch failed (non-fatal): %s", err)
 
-    # Pro: fetch climate and sensor data
+    # Pro: fetch climate, sensor, and apartment state data
     if coordinator.pro_enabled:
         try:
             await coordinator.fetch_climate_data()
             await coordinator.fetch_sensor_data()
+            await coordinator.fetch_apartment_state()
         except Exception as err:
             _LOGGER.warning("Pro data fetch failed (non-fatal): %s", err)
 

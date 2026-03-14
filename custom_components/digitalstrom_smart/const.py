@@ -7,7 +7,7 @@ DOMAIN = "digitalstrom_smart"
 MANUFACTURER = "Digital Strom"
 INTEGRATION_AUTHOR = "Woon IoT BV"
 INTEGRATION_URL = "https://github.com/wooniot/ha-digitalstrom-smart"
-INTEGRATION_VERSION = "2.4.1"
+INTEGRATION_VERSION = "2.5.0"
 
 # Application name shown in dSS Configurator under registered applications
 DSS_APP_NAME = "WoonIoT HA Connect"
@@ -61,14 +61,51 @@ SCENE_MAX = 5     # Same as Scene 1
 SCENE_MIN = 0     # Off
 SCENE_STOP = 15   # Stop (covers, dimming)
 
-# Apartment-wide scenes
-SCENE_DEEP_OFF = 68
-SCENE_STANDBY = 67
-SCENE_PANIC = 65
+# Apartment-wide scenes: Presence
+SCENE_PRESENT = 71       # Coming home / Thuis
+SCENE_ABSENT = 72        # Leaving home / Afwezig
+SCENE_SLEEPING = 69      # Slapen
+SCENE_WAKEUP = 70        # Opstaan
+SCENE_STANDBY = 67       # Standby
+SCENE_DEEP_OFF = 68      # Diep uit
+
+# Apartment-wide scenes: Alarm & Safety
+SCENE_PANIC = 65         # Paniek
+SCENE_ALARM_1 = 74       # Alarm 1
+SCENE_ALARM_2 = 75       # Alarm 2
+SCENE_ALARM_3 = 76       # Alarm 3 (Brand)
+SCENE_ALARM_4 = 77       # Alarm 4
+SCENE_FIRE = 76          # Brand (= Alarm 3)
+SCENE_WIND = 83          # Wind bescherming
+SCENE_RAIN = 85          # Regen bescherming
+
+# Legacy alias
 SCENE_ALARM = 74
-SCENE_FIRE = 76
-SCENE_WIND = 71
-SCENE_RAIN = 73
+
+# Presence scene mapping: scene_nr -> display name
+APARTMENT_PRESENCE_SCENES = {
+    SCENE_PRESENT: "Present",
+    SCENE_ABSENT: "Absent",
+    SCENE_SLEEPING: "Sleeping",
+    SCENE_WAKEUP: "Wakeup",
+    SCENE_STANDBY: "Standby",
+    SCENE_DEEP_OFF: "Deep Off",
+}
+
+# All presence scene numbers (for detection in events)
+PRESENCE_SCENE_NUMBERS = set(APARTMENT_PRESENCE_SCENES.keys())
+
+# Alarm scene mapping: scene_nr -> display name
+APARTMENT_ALARM_SCENES = {
+    SCENE_ALARM_1: "Alarm 1",
+    SCENE_ALARM_2: "Alarm 2",
+    SCENE_ALARM_3: "Alarm 3",
+    SCENE_ALARM_4: "Alarm 4",
+    SCENE_PANIC: "Panic",
+}
+
+# All alarm scene numbers (for detection in events)
+ALARM_SCENE_NUMBERS = set(APARTMENT_ALARM_SCENES.keys())
 
 # Cover scenes
 SCENE_COVER_OPEN = 5    # Up / Open
@@ -180,7 +217,7 @@ CONF_PRO_LICENSE = "pro_license_key"
 PLATFORMS_FREE = ["light", "cover", "sensor", "scene", "switch", "binary_sensor"]
 
 # Pro platforms (requires license)
-PLATFORMS_PRO = ["climate"]
+PLATFORMS_PRO = ["climate", "select"]
 
 # All platforms
 PLATFORMS = PLATFORMS_FREE + PLATFORMS_PRO

@@ -41,6 +41,9 @@ from .const import (
     SENSOR_CO2,
     INTEGRATION_VERSION,
     TELEMETRY_URL,
+    PRESENCE_SCENE_NUMBERS,
+    ALARM_SCENE_NUMBERS,
+    SCENE_PRESENT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,6 +104,10 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         # Climate data (PRO)
         self._climate_status: dict[int, dict] = {}  # zone_id -> status
         self._climate_config: dict[int, dict] = {}  # zone_id -> config
+
+        # Apartment-wide state (PRO)
+        self._apartment_presence: int | None = None  # current presence scene nr
+        self._apartment_alarms: set[int] = set()     # active alarm scene nrs
 
         # Pro license status
         self.pro_enabled = False
@@ -477,6 +484,42 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
         """Set individual device on/off state."""
         self._device_on_states[dsuid] = is_on
 
+    # Apartment state accessors (PRO)
+
+    @property
+    def apartment_presence(self) -> int | None:
+        """Current presence scene number (71=Present, 72=Absent, etc.)."""
+        return self._apartment_presence
+
+    @property
+    def apartment_alarms(self) -> set[int]:
+        """Set of active alarm scene numbers."""
+        return self._apartment_alarms
+
+    def set_apartment_presence(self, scene: int) -> None:
+        self._apartment_presence = scene
+
+    def is_alarm_active(self, scene: int) -> bool:
+        return scene in self._apartment_alarms
+
+    async def fetch_apartment_state(self) -> None:
+        """Fetch initial apartment presence state from dSS."""
+        try:
+            scene = await self.api.get_last_called_scene(0, 0)
+            if scene >= 0 and scene in PRESENCE_SCENE_NUMBERS:
+                self._apartment_presence = scene
+                _LOGGER.info("Initial apartment state: scene %d", scene)
+        except Exception as err:
+            _LOGGER.debug("Could not fetch apartment state: %s", err)
+
+    async def call_apartment_scene(self, scene: int) -> None:
+        """Call an apartment-wide scene (zone 0, group 0)."""
+        await self.api.call_scene(0, 0, scene)
+
+    async def undo_apartment_scene(self, scene: int) -> None:
+        """Undo an apartment-wide scene."""
+        await self.api.undo_scene(0, 0, scene)
+
     def get_joker_devices_in_zone(self, zone_id: int) -> list[dict]:
         """Get all Joker (group 8) devices in a zone."""
         zone_info = self.zones.get(zone_id, {})
@@ -561,7 +604,27 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
             group = int(props.get("groupID", 0))
             scene = int(props.get("sceneID", -1))
 
-            if zone_id and scene >= 0:
+            if scene < 0:
+                return
+
+            # Apartment-level scenes (zone 0)
+            if zone_id == 0:
+                if name == "callScene":
+                    if scene in PRESENCE_SCENE_NUMBERS:
+                        self._apartment_presence = scene
+                    elif scene in ALARM_SCENE_NUMBERS:
+                        self._apartment_alarms.add(scene)
+                elif name == "undoScene":
+                    if scene in ALARM_SCENE_NUMBERS:
+                        self._apartment_alarms.discard(scene)
+                _LOGGER.debug(
+                    "Apartment event %s: scene=%d (presence=%s, alarms=%s)",
+                    name, scene, self._apartment_presence, self._apartment_alarms,
+                )
+                self.async_update_listeners()
+                return
+
+            if zone_id > 0:
                 is_on = scene != SCENE_OFF if name == "callScene" else True
                 self.set_zone_state(zone_id, group, scene=scene, is_on=is_on)
 
