@@ -64,6 +64,8 @@ class DigitalStromAlarmSwitch(CoordinatorEntity, SwitchEntity):
         "Alarm 4": "mdi:alert",
         "Panic": "mdi:alert-octagon",
         "Doorbell": "mdi:bell-ring",
+        "Wind": "mdi:weather-windy",
+        "Rain": "mdi:weather-rainy",
     }
 
     def __init__(

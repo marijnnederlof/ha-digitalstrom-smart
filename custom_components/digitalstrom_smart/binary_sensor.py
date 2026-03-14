@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, GROUP_JOKER, CONF_ENABLED_ZONES, APARTMENT_ALARM_SENSORS
+from .const import DOMAIN, MANUFACTURER, GROUP_JOKER, CONF_ENABLED_ZONES
 from .coordinator import DigitalStromCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,13 +74,6 @@ async def async_setup_entry(
     # --- PRO: Rain detection from outdoor weather data ---
     if coordinator.pro_enabled and coordinator.outdoor_sensors and "rain" in coordinator.outdoor_sensors:
         entities.append(DigitalStromRainSensor(coordinator))
-
-    # --- PRO: Apartment alarm binary sensors (Fire, Wind, Panic, Doorbell) ---
-    if coordinator.pro_enabled:
-        for scene_nr, (name, icon, device_class) in APARTMENT_ALARM_SENSORS.items():
-            entities.append(
-                DigitalStromAlarmSensor(coordinator, scene_nr, name, icon, device_class)
-            )
 
     async_add_entities(entities)
 
@@ -165,43 +158,6 @@ class DigitalStromRainSensor(CoordinatorEntity, BinarySensorEntity):
         if value is not None:
             return float(value) > 0
         return None
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-
-class DigitalStromAlarmSensor(CoordinatorEntity, BinarySensorEntity):
-    """Apartment alarm binary sensor (Fire, Wind, Panic, Doorbell). PRO."""
-
-    _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        coordinator: DigitalStromCoordinator,
-        scene_nr: int,
-        name: str,
-        icon: str,
-        device_class: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._scene_nr = scene_nr
-        dss_id = coordinator.dss_id
-        self._attr_unique_id = f"ds_{dss_id}_alarm_{scene_nr}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_device_class = getattr(BinarySensorDeviceClass, device_class.upper(), None)
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{dss_id}_apartment")},
-            "name": "Digital Strom Server",
-            "manufacturer": MANUFACTURER,
-            "model": "dSS",
-        }
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if this alarm is currently active."""
-        return self.coordinator.is_alarm_active(self._scene_nr)
 
     @callback
     def _handle_coordinator_update(self) -> None:
