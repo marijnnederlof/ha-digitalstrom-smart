@@ -150,7 +150,8 @@ CLIMATE_NIGHT = 4
 CLIMATE_HOLIDAY = 5
 
 # --- Polling intervals (seconds) ---
-POLL_INTERVAL_ENERGY = 300       # 5 min for consumption
+POLL_INTERVAL = 30               # 30s for all sensor data
+POLL_INTERVAL_ENERGY = 30        # kept for backwards compat
 POLL_INTERVAL_TEMPERATURE = 300  # 5 min for temp control values
 
 # --- Event listener ---

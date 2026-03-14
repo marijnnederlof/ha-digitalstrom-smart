@@ -87,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         _LOGGER.warning("Initial state fetch failed (non-fatal): %s", err)
 
-    # Fetch device sensor values (Ulux etc.) - one-time, then events update
+    # Fetch device sensor values (Ulux etc.) - initial load, then polled + events
     try:
         await coordinator.fetch_device_sensors()
     except Exception as err:

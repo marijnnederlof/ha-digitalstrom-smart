@@ -339,7 +339,7 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
                         self._device_sensor_values.setdefault(dsuid, {})[stype] = val
                         found_count += 1
 
-        _LOGGER.info("Loaded %d sensor values from zone API", found_count)
+        _LOGGER.debug("Polled %d sensor values from zone API", found_count)
 
     def _find_device_with_sensor(self, zone_info: dict, sensor_type: int) -> str | None:
         """Find the first device in a zone that has a given sensor type."""
@@ -643,6 +643,9 @@ class DigitalStromCoordinator(DataUpdateCoordinator):
 
             # Per-circuit power (FREE)
             await self.fetch_circuit_data()
+
+            # Device sensors: Ulux, thermostats, etc. (FREE)
+            await self.fetch_device_sensors()
 
             # Pro features: extra data
             if self.pro_enabled:
